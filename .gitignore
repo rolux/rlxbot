@@ -1,0 +1,15 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+
+# Private credentials and Discord identifiers
+/untracked/
+/discord/
+
+# Local source material and generated output
+/videos/
+/timelines/
+/cuts/
+/scenes/
+/reviews/
