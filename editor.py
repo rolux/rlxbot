@@ -375,7 +375,7 @@ EDITOR_HTML = r"""<!doctype html>
         <img id="overviewImage" alt="Complete video timeline">
         <img class="timeline-icon player-icon" id="overviewPointer" src="/editor/player.png" alt="">
       </div>
-      <output class="current-timecode" id="currentTimecode" title="Show current frame">00:00:00</output>
+      <output class="current-timecode" id="currentTimecode" title="Show current frame">00:00.000</output>
     </div>
   </main>
   <aside class="sidebar" id="sidebar">
@@ -448,12 +448,12 @@ EDITOR_HTML = r"""<!doctype html>
   }
 
   function shortTimecode(frame) {
-    const rate = Math.round(fps());
-    const totalSeconds = Math.floor(frame / rate);
-    const ff = frame % rate;
-    const ss = totalSeconds % 60;
-    const mm = Math.floor(totalSeconds / 60);
-    return [mm, ss, ff].map(value => String(value).padStart(2, '0')).join(':');
+    const totalMilliseconds = Math.round((frame * 1000) / fps());
+    const milliseconds = totalMilliseconds % 1000;
+    const totalSeconds = Math.floor(totalMilliseconds / 1000);
+    const seconds = totalSeconds % 60;
+    const minutes = Math.floor(totalSeconds / 60);
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(milliseconds).padStart(3, '0')}`;
   }
 
   function seekFrame(frame, center = true) {
