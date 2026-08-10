@@ -133,6 +133,15 @@ EDITOR_HTML = r"""<!doctype html>
   .player-icon { top: 0; margin-left: -7px; }
   .keyframe-icon { top: 0; margin-left: -5px; }
   .cut-icon { top: 0; margin-left: -3px; }
+  .scene-status {
+    position: absolute;
+    bottom: 2px;
+    z-index: 5;
+    height: 1px;
+    pointer-events: none;
+  }
+  .scene-status.included { background: #00c000; }
+  .scene-status.excluded { background: #c00000; }
   #detailPointer { left: 50%; }
   .overview-timeline { cursor: pointer; }
   .overview-row {
@@ -595,6 +604,21 @@ EDITOR_HTML = r"""<!doctype html>
       '/editor/keyframe.png',
       scenes.filter(scene => scene.keyframe_frame !== null).map(scene => scene.keyframe_frame),
     );
+
+    const statusBars = [...track.querySelectorAll('.scene-status')];
+    scenes.forEach((scene, index) => {
+      let statusBar = statusBars[index];
+      if (!statusBar) {
+        statusBar = document.createElement('div');
+        track.appendChild(statusBar);
+      }
+      const sceneWidth = scene.end_frame - scene.start_frame;
+      const inset = sceneWidth >= 5 ? 2 : sceneWidth >= 3 ? 1 : 0;
+      statusBar.className = `scene-status ${scene.keyframe_frame === null ? 'excluded' : 'included'}`;
+      statusBar.style.left = `${pad + scene.start_frame + inset}px`;
+      statusBar.style.width = `${Math.max(1, sceneWidth - (2 * inset))}px`;
+    });
+    statusBars.slice(scenes.length).forEach(statusBar => statusBar.remove());
   }
 
   function setKeyframe(index) {
