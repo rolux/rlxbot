@@ -22,31 +22,31 @@ Install the Python dependencies:
 uv sync
 ```
 
-## Prepare a video
+## Open the editor
 
-Put source videos in `videos/`, then generate the two timeline representations
-and run PySceneDetect:
-
-```sh
-uv run editor.py timelines videos/example.mp4
-uv run editor.py cuts videos/example.mp4
-```
-
-The generated timeline data and raw cut detection results are written beneath
-`timelines/` and `cuts/`. Both directories are local working data and are not
-tracked by Git.
-
-## Edit scenes
-
-Start the local editor:
+Put a source video in `videos/` and start the local editor:
 
 ```sh
 uv run editor.py editor videos/example.mp4 --port 8028
 ```
 
+If the video has not been prepared yet, this command automatically runs
+PySceneDetect and generates the detailed mean and slitscan timelines plus the
+complete overview timelines. Existing cut and timeline data is reused on later
+runs. Generated data is written beneath `cuts/` and `timelines/`; both are local
+working directories and are not tracked by Git.
+
 Open the displayed local URL in a browser. The editor supports adjusting scene
 boundaries, splitting and merging scenes, naming scenes, editing locations, and
 selecting exact keyframes. Metadata can be loaded and saved as JSON.
+
+The individual preparation commands remain available when either result needs
+to be regenerated explicitly:
+
+```sh
+uv run editor.py cuts videos/example.mp4
+uv run editor.py timelines videos/example.mp4
+```
 
 Useful controls:
 

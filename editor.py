@@ -1616,6 +1616,24 @@ def serve_editor(filename, port):
 # Command line
 # -----------------------------------------------------------------------------
 
+def prepare_editor_data(filename):
+    video_path = Path(filename).resolve()
+    if not video_path.is_file():
+        raise FileNotFoundError(video_path)
+
+    timeline_metadata = TIMELINES_DIR / video_path.stem / "timeline.json"
+    if not timeline_metadata.is_file():
+        print(f"No timeline data found for {video_path.name}; generating it now.")
+        generate_timelines(video_path)
+
+    cuts_file = CUTS_DIR / video_path.stem / "cuts.csv"
+    if not cuts_file.is_file():
+        print(f"No cut data found for {video_path.name}; running PySceneDetect now.")
+        detect_cuts(video_path)
+
+    return video_path
+
+
 def main():
     parser = argparse.ArgumentParser(description="Scene-by-scene trailer editor")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1642,7 +1660,7 @@ def main():
     elif args.command == "cuts":
         detect_cuts(args.video)
     elif args.command == "editor":
-        serve_editor(args.video, args.port)
+        serve_editor(prepare_editor_data(args.video), args.port)
 
 
 if __name__ == "__main__":
