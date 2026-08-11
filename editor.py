@@ -101,7 +101,7 @@ EDITOR_HTML = r"""<!doctype html>
   }
   .detail-timeline, .overview-timeline {
     position: relative;
-    overflow: hidden;
+    overflow: visible;
     user-select: none;
     touch-action: none;
     background: var(--bg);
@@ -112,27 +112,60 @@ EDITOR_HTML = r"""<!doctype html>
     display: flex;
     width: max-content;
     height: 100%;
-    will-change: transform;
   }
   .timeline-track > img.timeline-tile {
     display: block;
     flex: none;
-    height: 100%;
+    height: calc(100% - 2px);
+    margin-top: 2px;
     image-rendering: auto;
     pointer-events: none;
   }
   .timeline-spacer { flex: none; height: 100%; }
   .timeline-icon {
     position: absolute;
-    z-index: 10;
-    width: auto;
-    height: auto;
-    image-rendering: pixelated;
+    overflow: hidden;
     pointer-events: none;
   }
-  .player-icon { top: 0; margin-left: -7px; }
-  .keyframe-icon { top: 0; margin-left: -5px; }
-  .cut-icon { top: 0; margin-left: -3px; }
+  .timeline-icon::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    box-sizing: border-box;
+    border: 1px solid var(--marker-stroke);
+    background: var(--marker-fill);
+    transform: translateX(-50%) rotate(45deg);
+  }
+  .player-icon {
+    top: -2px;
+    z-index: 10;
+    width: 28px;
+    height: 12px;
+    margin-left: -14px;
+    --marker-stroke: #c0e0ff;
+    --marker-fill: #0070e0;
+  }
+  .player-icon::before { bottom: 4px; width: 18px; height: 18px; }
+  .keyframe-icon {
+    top: 0;
+    z-index: 20;
+    width: 22px;
+    height: 9px;
+    margin-left: -11px;
+    --marker-stroke: #c0ffc0;
+    --marker-fill: #00c000;
+  }
+  .keyframe-icon::before { bottom: 3px; width: 14px; height: 14px; }
+  .cut-icon {
+    top: 0;
+    z-index: 30;
+    width: 16px;
+    height: 6px;
+    margin-left: -8px;
+    --marker-stroke: #ffc0c0;
+    --marker-fill: #c00000;
+  }
+  .cut-icon::before { bottom: 2px; width: 10px; height: 10px; }
   .scene-status {
     position: absolute;
     bottom: 2px;
@@ -256,7 +289,7 @@ EDITOR_HTML = r"""<!doctype html>
   }
   .detail-scroll {
     position: absolute;
-    inset: 0;
+    inset: -2px 0 0;
     overflow: hidden;
   }
   .scene-card {
@@ -385,13 +418,13 @@ EDITOR_HTML = r"""<!doctype html>
       <div class="detail-scroll" id="detailScroll">
         <div class="timeline-track" id="timelineTrack"></div>
       </div>
-      <img class="timeline-icon player-icon" id="detailPointer" src="/editor/player.png" alt="">
+      <div class="timeline-icon player-icon" id="detailPointer"></div>
     </div>
     <div class="overview-row">
       <output class="volume-display" id="volumeDisplay" title="Volume">100</output>
       <div class="overview-timeline" id="overviewTimeline">
         <img id="overviewImage" alt="Complete video timeline">
-        <img class="timeline-icon player-icon" id="overviewPointer" src="/editor/player.png" alt="">
+        <div class="timeline-icon player-icon" id="overviewPointer"></div>
       </div>
       <output class="current-timecode" id="currentTimecode" title="Show current frame">00:00.000</output>
     </div>
@@ -590,15 +623,13 @@ EDITOR_HTML = r"""<!doctype html>
 
   function renderTimelineOverlays() {
     const pad = detail.clientWidth / 2;
-    const syncIcons = (className, source, frames) => {
+    const syncIcons = (className, frames) => {
       const icons = [...track.querySelectorAll(`.${className}`)];
       frames.forEach((frame, index) => {
         let icon = icons[index];
         if (!icon) {
-          icon = document.createElement('img');
+          icon = document.createElement('div');
           icon.className = `timeline-icon ${className}`;
-          icon.src = source;
-          icon.alt = '';
           track.appendChild(icon);
         }
         icon.dataset.frame = frame;
@@ -607,10 +638,9 @@ EDITOR_HTML = r"""<!doctype html>
       icons.slice(frames.length).forEach(icon => icon.remove());
     };
 
-    syncIcons('cut-icon', '/editor/cut.png', scenes.slice(0, -1).map(scene => scene.end_frame));
+    syncIcons('cut-icon', scenes.slice(0, -1).map(scene => scene.end_frame));
     syncIcons(
       'keyframe-icon',
-      '/editor/keyframe.png',
       scenes.filter(scene => scene.keyframe_frame !== null).map(scene => scene.keyframe_frame),
     );
 
@@ -1477,8 +1507,6 @@ def serve_editor(filename, port):
         raise FileNotFoundError(f"Prepare timelines and cuts first: {video_path}")
     projects_by_name = {project["video_name"]: project for project in projects.values()}
     available_videos = sorted(projects_by_name, key=str.lower)
-    editor_dir = Path(__file__).resolve().parent / "editor"
-
     class EditorHandler(BaseHTTPRequestHandler):
         def log_message(self, _format, *_args):
             pass
@@ -1565,15 +1593,6 @@ def serve_editor(filename, port):
                     self.send_error(404)
                     return
                 self.sendFile(selected_path, "video/mp4", allow_ranges=True)
-                return
-            if request_path.startswith("/editor/"):
-                name = Path(request_path).name
-                if name in {"player.png", "keyframe.png", "cut.png"}:
-                    asset_path = editor_dir / name
-                    if asset_path.is_file():
-                        self.sendFile(asset_path, "image/png")
-                        return
-                self.send_error(404)
                 return
             timeline_match = re.fullmatch(r"/timeline/([^/]+)/(timeline_[^/]+\.png)", request_path)
             if timeline_match:
