@@ -142,6 +142,15 @@ EDITOR_HTML = r"""<!doctype html>
   }
   .scene-status.included { background: #00c000; }
   .scene-status.excluded { background: #c00000; }
+  .scene-keyframe-tick {
+    position: absolute;
+    bottom: 5px;
+    z-index: 6;
+    width: 1px;
+    height: 2px;
+    background: #00c000;
+    pointer-events: none;
+  }
   #detailPointer { left: 50%; }
   .overview-timeline { cursor: pointer; }
   .overview-row {
@@ -619,6 +628,21 @@ EDITOR_HTML = r"""<!doctype html>
       statusBar.style.width = `${Math.max(1, sceneWidth - (2 * inset))}px`;
     });
     statusBars.slice(scenes.length).forEach(statusBar => statusBar.remove());
+
+    const keyframeTicks = [...track.querySelectorAll('.scene-keyframe-tick')];
+    const keyframeFrames = scenes
+      .filter(scene => scene.keyframe_frame !== null)
+      .map(scene => scene.keyframe_frame);
+    keyframeFrames.forEach((frame, index) => {
+      let keyframeTick = keyframeTicks[index];
+      if (!keyframeTick) {
+        keyframeTick = document.createElement('div');
+        keyframeTick.className = 'scene-keyframe-tick';
+        track.appendChild(keyframeTick);
+      }
+      keyframeTick.style.left = `${pad + frame}px`;
+    });
+    keyframeTicks.slice(keyframeFrames.length).forEach(keyframeTick => keyframeTick.remove());
   }
 
   function setKeyframe(index) {
