@@ -51,9 +51,11 @@ uv run editor.py timelines videos/example.mp4
 Useful controls:
 
 - Click the video or press Space to play or pause.
-- Left/Right move by one frame; comma/period move backward or forward by one second.
-- Up/Down jump to the previous or next scene.
-- `/` selects the scene at the playhead.
+- Left/Right move by one frame; Shift-Left/Right move backward or forward by one second.
+- Up/Down jump to the previous or next cut; Shift-Up/Down jump to the beginning or end of the video.
+- Comma/period select the previous or next scene; `/` selects the scene at the playhead.
+- `[` and `]` jump to the first or last frame of the selected scene; `\` jumps to its keyframe.
+- `E` edits the selected scene title.
 - `I` sets the in point, `O` sets the out point, and `S` splits the selected scene (where valid).
 - `K` sets the keyframe; Shift-K removes it.
 - `=` and `-` change volume; `0` toggles mute.

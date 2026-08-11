@@ -875,10 +875,10 @@ EDITOR_HTML = r"""<!doctype html>
           renderSidebar();
           return;
         }
-        if (event.target.closest('input,button,.thumbnail')) return;
+        if (event.target.closest('input,button')) return;
         selectedSceneIndex = index;
         renderSidebar();
-        seekFrame(scene.start_frame);
+        seekFrame(scene.keyframe_frame ?? scene.start_frame);
       });
 
       const header = document.createElement('div');
@@ -928,13 +928,6 @@ EDITOR_HTML = r"""<!doctype html>
         image.src = `${project.frame_url_prefix}${scene.keyframe_frame}.png`;
         image.loading = 'lazy';
         image.alt = scene.title || `Keyframe ${scene.keyframe_frame}`;
-        image.addEventListener('click', event => {
-          if (event.metaKey) return;
-          event.stopPropagation();
-          selectedSceneIndex = index;
-          renderSidebar();
-          seekFrame(scene.keyframe_frame);
-        });
         thumbnail.appendChild(image);
       } else {
         const placeholder = document.createElement('div');
@@ -1136,6 +1129,31 @@ EDITOR_HTML = r"""<!doctype html>
     sceneList.querySelector(`.scene-card[data-scene-index="${index}"]`)?.scrollIntoView({block: 'nearest'});
   }
 
+  function selectAdjacentScene(offset) {
+    if (selectedSceneIndex === null) return;
+    const index = selectedSceneIndex + offset;
+    if (index < 0 || index >= scenes.length) return;
+    selectedSceneIndex = index;
+    seekFrame(scenes[index].keyframe_frame ?? scenes[index].start_frame);
+    sceneList.querySelector(`.scene-card[data-scene-index="${index}"]`)?.scrollIntoView({block: 'nearest'});
+  }
+
+  function seekWithinSelectedScene(position) {
+    if (selectedSceneIndex === null) return;
+    const scene = scenes[selectedSceneIndex];
+    if (position === 'start') seekFrame(scene.start_frame);
+    if (position === 'end') seekFrame(scene.end_frame - 1);
+    if (position === 'keyframe' && scene.keyframe_frame !== null) seekFrame(scene.keyframe_frame);
+  }
+
+  function editSelectedTitle() {
+    if (selectedSceneIndex === null) return;
+    const title = sceneList.querySelector(`.scene-card[data-scene-index="${selectedSceneIndex}"] .scene-title`);
+    if (!title) return;
+    title.focus();
+    title.select();
+  }
+
   selectCurrentButton.addEventListener('click', selectCurrentScene);
 
   loadMetadataButton.addEventListener('click', () => {
@@ -1212,14 +1230,36 @@ EDITOR_HTML = r"""<!doctype html>
 
   document.addEventListener('keydown', event => {
     if (event.target.matches('input,textarea')) return;
+    const navigationShortcut = !event.metaKey && !event.ctrlKey && !event.altKey;
     const keyframeShortcut = event.key.toLowerCase() === 'k' && !event.metaKey && !event.ctrlKey && !event.altKey;
     const sceneEditShortcut = ['i', 'o', 's'].includes(event.key.toLowerCase()) && !event.metaKey && !event.ctrlKey && !event.altKey;
+    const titleEditShortcut = event.key.toLowerCase() === 'e' && !event.metaKey && !event.ctrlKey && !event.altKey;
     const volumeShortcut = ['=', '+', '-', '0'].includes(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey;
-    if ([' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ',', '.', '/'].includes(event.key)) {
+    if (navigationShortcut && [' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ',', '.', '/', '[', ']', '\\'].includes(event.key)) {
       event.preventDefault();
     }
-    if (event.key === '/') {
+    if (navigationShortcut && event.key === '/') {
       selectCurrentScene();
+      return;
+    }
+    if (navigationShortcut && event.key === ',') {
+      selectAdjacentScene(-1);
+      return;
+    }
+    if (navigationShortcut && event.key === '.') {
+      selectAdjacentScene(1);
+      return;
+    }
+    if (navigationShortcut && event.key === '[') {
+      seekWithinSelectedScene('start');
+      return;
+    }
+    if (navigationShortcut && event.key === ']') {
+      seekWithinSelectedScene('end');
+      return;
+    }
+    if (navigationShortcut && event.key === '\\') {
+      seekWithinSelectedScene('keyframe');
       return;
     }
     if (volumeShortcut) {
@@ -1241,6 +1281,11 @@ EDITOR_HTML = r"""<!doctype html>
       }
       return;
     }
+    if (titleEditShortcut) {
+      event.preventDefault();
+      editSelectedTitle();
+      return;
+    }
     if (sceneEditShortcut) {
       event.preventDefault();
       if (selectedSceneIndex === null) return;
@@ -1250,16 +1295,22 @@ EDITOR_HTML = r"""<!doctype html>
       if (shortcut === 's') splitHere(selectedSceneIndex);
       return;
     }
-    if (event.key === ' ') togglePlayback();
-    if (event.key === 'ArrowLeft') seekFrame(currentFrame - 1);
-    if (event.key === 'ArrowRight') seekFrame(currentFrame + 1);
-    if (event.key === ',') seekFrame(currentFrame - fps());
-    if (event.key === '.') seekFrame(currentFrame + fps());
-    if (event.key === 'ArrowUp') {
+    if (navigationShortcut && event.key === ' ') togglePlayback();
+    if (navigationShortcut && event.key === 'ArrowLeft') seekFrame(currentFrame - (event.shiftKey ? fps() : 1));
+    if (navigationShortcut && event.key === 'ArrowRight') seekFrame(currentFrame + (event.shiftKey ? fps() : 1));
+    if (navigationShortcut && event.key === 'ArrowUp' && event.shiftKey) {
+      seekFrame(0);
+      return;
+    }
+    if (navigationShortcut && event.key === 'ArrowDown' && event.shiftKey) {
+      seekFrame(project.frame_count - 1);
+      return;
+    }
+    if (navigationShortcut && event.key === 'ArrowUp') {
       const previous = scenes.map(scene => scene.start_frame).filter(frame => frame < currentFrame).pop();
       seekFrame(previous ?? 0);
     }
-    if (event.key === 'ArrowDown') {
+    if (navigationShortcut && event.key === 'ArrowDown') {
       const next = scenes.map(scene => scene.start_frame).find(frame => frame > currentFrame);
       seekFrame(next ?? project.frame_count - 1);
     }
