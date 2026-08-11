@@ -197,6 +197,8 @@ EDITOR_HTML = r"""<!doctype html>
     display: block;
     width: 100%;
     height: 16px;
+    pointer-events: none;
+    user-select: none;
   }
   .volume-display,
   .current-timecode {
@@ -423,7 +425,7 @@ EDITOR_HTML = r"""<!doctype html>
     <div class="overview-row">
       <output class="volume-display" id="volumeDisplay" title="Volume">100</output>
       <div class="overview-timeline" id="overviewTimeline">
-        <img id="overviewImage" alt="Complete video timeline">
+        <img id="overviewImage" alt="Complete video timeline" draggable="false">
         <div class="timeline-icon player-icon" id="overviewPointer"></div>
       </div>
       <output class="current-timecode" id="currentTimecode" title="Show current frame">00:00.000</output>
@@ -1010,9 +1012,28 @@ EDITOR_HTML = r"""<!doctype html>
     }
   });
 
-  overview.addEventListener('click', event => {
+  function scrubOverview(event) {
     const bounds = overview.getBoundingClientRect();
     seekFrame(((event.clientX - bounds.left) / bounds.width) * (project.frame_count - 1));
+  }
+
+  overview.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    overview.setPointerCapture(event.pointerId);
+    scrubOverview(event);
+  });
+  overview.addEventListener('pointermove', event => {
+    if (!overview.hasPointerCapture(event.pointerId)) return;
+    scrubOverview(event);
+  });
+  overview.addEventListener('pointerup', event => {
+    if (!overview.hasPointerCapture(event.pointerId)) return;
+    scrubOverview(event);
+    overview.releasePointerCapture(event.pointerId);
+  });
+  overview.addEventListener('pointercancel', event => {
+    if (overview.hasPointerCapture(event.pointerId)) overview.releasePointerCapture(event.pointerId);
   });
 
   currentTimecode.addEventListener('click', () => {
