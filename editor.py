@@ -1351,6 +1351,9 @@ EDITOR_HTML = r"""<!doctype html>
     if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
     const data = await response.json();
     project = data;
+    const pageUrl = new URL(window.location.href);
+    pageUrl.searchParams.set('video', data.video_name);
+    window.history.replaceState(null, '', pageUrl);
     selectedSceneIndex = null;
     currentFrame = 0;
     const stateKey = `rlxbot:${data.video_name}`;
@@ -1391,7 +1394,8 @@ EDITOR_HTML = r"""<!doctype html>
     });
   });
 
-  loadProject().catch(error => {
+  const initialVideoName = new URLSearchParams(window.location.search).get('video') || '';
+  loadProject(initialVideoName).catch(error => {
     projectLoading.hidden = true;
     sceneList.innerHTML = `<div class="loading">Could not load project: ${error}</div>`;
   });

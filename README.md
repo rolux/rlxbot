@@ -38,7 +38,8 @@ working directories and are not tracked by Git.
 
 Open the displayed local URL in a browser. The editor supports adjusting scene
 boundaries, splitting and merging scenes, naming scenes, editing locations, and
-selecting exact keyframes. Metadata can be loaded and saved as JSON.
+selecting exact keyframes. Metadata can be loaded and saved as JSON. The active
+video is recorded in the page URL, so reloading restores the same selection.
 
 The individual preparation commands remain available when either result needs
 to be regenerated explicitly:
