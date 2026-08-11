@@ -484,6 +484,8 @@ EDITOR_HTML = r"""<!doctype html>
   localStorage.setItem('rlxbot:timeline-mode', timelineMode);
   let previousVolume = 1;
   let timeReadoutMode = 'timecode';
+  let playbackDesired = false;
+  let playbackRevision = 0;
   let dirty = false;
 
   const sceneIdPrefix = 'T3/';
@@ -516,13 +518,28 @@ EDITOR_HTML = r"""<!doctype html>
     updateActiveScene();
   }
 
-  function togglePlayback() {
-    if (!video.paused) {
-      video.pause();
-      return;
-    }
+  function stopPlayback() {
+    playbackDesired = false;
+    playbackRevision += 1;
+    video.pause();
+  }
+
+  function startPlayback() {
+    playbackDesired = true;
+    const revision = ++playbackRevision;
     if (video.ended || video.currentTime >= video.duration) seekFrame(0);
-    video.play();
+    const playPromise = video.play();
+    if (playPromise === undefined) return;
+    playPromise.catch(error => {
+      if (revision !== playbackRevision) return;
+      playbackDesired = false;
+      if (error.name !== 'AbortError') console.error('Could not play video:', error);
+    });
+  }
+
+  function togglePlayback() {
+    if (playbackDesired || !video.paused) stopPlayback();
+    else startPlayback();
   }
 
   function updateVolumeDisplay() {
@@ -1043,6 +1060,14 @@ EDITOR_HTML = r"""<!doctype html>
 
   video.addEventListener('click', togglePlayback);
   video.addEventListener('volumechange', updateVolumeDisplay);
+  video.addEventListener('pause', () => {
+    playbackDesired = false;
+    playbackRevision += 1;
+  });
+  video.addEventListener('ended', () => {
+    playbackDesired = false;
+    playbackRevision += 1;
+  });
 
   timelineModeSelect.addEventListener('change', () => {
     timelineMode = timelineModeSelect.value;
@@ -1201,7 +1226,7 @@ EDITOR_HTML = r"""<!doctype html>
   window.addEventListener('resize', updateTimelinePadding);
 
   async function loadProject(videoName = '') {
-    video.pause();
+    stopPlayback();
     videoSelect.disabled = true;
     projectLoading.textContent = videoName ? `Loading ${videoName}…` : 'Loading video…';
     projectLoading.hidden = false;
