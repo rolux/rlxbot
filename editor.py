@@ -1160,6 +1160,7 @@ EDITOR_HTML = r"""<!doctype html>
   document.addEventListener('keydown', event => {
     if (event.target.matches('input,textarea')) return;
     const keyframeShortcut = event.key.toLowerCase() === 'k' && !event.metaKey && !event.ctrlKey && !event.altKey;
+    const sceneEditShortcut = ['i', 'o', 's'].includes(event.key.toLowerCase()) && !event.metaKey && !event.ctrlKey && !event.altKey;
     const volumeShortcut = ['=', '+', '-', '0'].includes(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey;
     if ([' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ',', '.', '/'].includes(event.key)) {
       event.preventDefault();
@@ -1187,9 +1188,20 @@ EDITOR_HTML = r"""<!doctype html>
       }
       return;
     }
+    if (sceneEditShortcut) {
+      event.preventDefault();
+      if (selectedSceneIndex === null) return;
+      const shortcut = event.key.toLowerCase();
+      if (shortcut === 'i') setStartHere(selectedSceneIndex);
+      if (shortcut === 'o') setEndHere(selectedSceneIndex);
+      if (shortcut === 's') splitHere(selectedSceneIndex);
+      return;
+    }
     if (event.key === ' ') togglePlayback();
-    if (event.key === 'ArrowLeft' || event.key === ',') seekFrame(currentFrame - 1);
-    if (event.key === 'ArrowRight' || event.key === '.') seekFrame(currentFrame + 1);
+    if (event.key === 'ArrowLeft') seekFrame(currentFrame - 1);
+    if (event.key === 'ArrowRight') seekFrame(currentFrame + 1);
+    if (event.key === ',') seekFrame(currentFrame - fps());
+    if (event.key === '.') seekFrame(currentFrame + fps());
     if (event.key === 'ArrowUp') {
       const previous = scenes.map(scene => scene.start_frame).filter(frame => frame < currentFrame).pop();
       seekFrame(previous ?? 0);
