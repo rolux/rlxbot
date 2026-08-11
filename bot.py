@@ -78,11 +78,11 @@ def make_title(scene):
 
 def make_body(scene, frame_rate, source, location):
     return (
-        f"*Source:* {source}\n"
-        f"*In:* {format_timestamp(scene['in_frame'], frame_rate)}, "
-        f"*Out:* {format_timestamp(scene['out_frame'], frame_rate)}, "
-        f"*Frame:* {scene['keyframe_frame']}\n"
-        f"*Location:* {location}"
+        f"**Source:** {source}\n"
+        f"**In:** {format_timestamp(scene['in_frame'], frame_rate)}, "
+        f"**Out:** {format_timestamp(scene['out_frame'], frame_rate)}, "
+        f"**Frame:** {scene['keyframe_frame']}\n"
+        f"**Location:** {location}"
     )
 
 
