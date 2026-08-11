@@ -89,6 +89,7 @@ def make_body(scene, frame_rate, source, location):
 def build_post_plan(metadata, frame_rate, source, location):
     posts = []
     seen_ids = set()
+    out_frame_is_exclusive = metadata.get("version", 1) >= 2
     for index, scene in enumerate(metadata["scenes"], 1):
         keyframe = scene.get("keyframe_frame")
         if keyframe is None:
@@ -108,15 +109,17 @@ def build_post_plan(metadata, frame_rate, source, location):
         for field in ("in_frame", "out_frame", "keyframe_frame"):
             if not isinstance(scene.get(field), int) or scene[field] < 0:
                 raise ValueError(f"Scene {scene_id} has an invalid {field}")
-        if not scene["in_frame"] <= keyframe <= scene["out_frame"]:
+        out_frame = scene["out_frame"] if out_frame_is_exclusive else scene["out_frame"] + 1
+        if not scene["in_frame"] <= keyframe < out_frame:
             raise ValueError(f"Scene {scene_id} has a keyframe outside its boundaries")
-        post_title = make_title(scene)
+        normalized_scene = {**scene, "out_frame": out_frame}
+        post_title = make_title(normalized_scene)
         if len(post_title) > 100:
             raise ValueError(f"Forum title is longer than 100 characters: {post_title}")
         posts.append({
             "id": scene_id,
             "title": post_title,
-            "body": make_body(scene, frame_rate, source, scene_location),
+            "body": make_body(normalized_scene, frame_rate, source, scene_location),
             "frame": keyframe,
         })
     if not posts:

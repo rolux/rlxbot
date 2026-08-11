@@ -541,12 +541,12 @@ EDITOR_HTML = r"""<!doctype html>
     }));
   }
 
-  function normalizeScenes(source) {
+  function normalizeScenes(source, outFrameIsExclusive = false) {
     if (!Array.isArray(source) || source.length === 0) throw new Error('Metadata contains no scenes.');
     return source.map((scene, index) => {
       const startFrame = Number.isInteger(scene.start_frame) ? scene.start_frame : scene.in_frame;
       const endFrame = Number.isInteger(scene.end_frame) ? scene.end_frame
-        : Number.isInteger(scene.out_frame) ? scene.out_frame + 1 : null;
+        : Number.isInteger(scene.out_frame) ? scene.out_frame + (outFrameIsExclusive ? 0 : 1) : null;
       let keyframe = null;
       if (Object.prototype.hasOwnProperty.call(scene, 'keyframe_frame')) keyframe = scene.keyframe_frame;
       else if (Object.prototype.hasOwnProperty.call(scene, 'selected_frame')) keyframe = scene.selected_frame;
@@ -842,7 +842,7 @@ EDITOR_HTML = r"""<!doctype html>
 
       const meta = document.createElement('div');
       meta.className = 'scene-meta';
-      const range = `${shortTimecode(scene.start_frame)} - ${shortTimecode(scene.end_frame - 1)}`;
+      const range = `${shortTimecode(scene.start_frame)} - ${shortTimecode(scene.end_frame)}`;
       if (scene.keyframe_frame !== null) {
         meta.innerHTML = `<span>${range}</span><span>Frame ${scene.keyframe_frame}</span>`;
       } else {
@@ -998,7 +998,7 @@ EDITOR_HTML = r"""<!doctype html>
       if (Number.isInteger(metadata.frame_count) && metadata.frame_count !== project.frame_count) {
         throw new Error(`Metadata has ${metadata.frame_count} frames, but this video has ${project.frame_count}.`);
       }
-      const importedScenes = normalizeScenes(metadata.scenes);
+      const importedScenes = normalizeScenes(metadata.scenes, metadata.version >= 2);
       validateSceneSequence(importedScenes, project.frame_count);
       scenes = importedScenes;
       selectedSceneIndex = null;
@@ -1025,10 +1025,10 @@ EDITOR_HTML = r"""<!doctype html>
         title: scene.title,
         location: scene.location,
         in_frame: scene.start_frame,
-        out_frame: scene.end_frame - 1,
+        out_frame: scene.end_frame,
         keyframe_frame: scene.keyframe_frame,
         in_timecode: frameTimecode(scene.start_frame),
-        out_timecode: frameTimecode(scene.end_frame - 1),
+        out_timecode: frameTimecode(scene.end_frame),
         keyframe_timecode: scene.keyframe_frame === null ? null : frameTimecode(scene.keyframe_frame),
       };
       if (scene.keyframe_frame === null) return exported;
@@ -1036,7 +1036,7 @@ EDITOR_HTML = r"""<!doctype html>
       return {id: `${sceneIdPrefix}${included}`, ...exported};
     });
     const output = {
-      version: 1,
+      version: 2,
       video: project.video_name,
       frame_rate: `${project.frame_rate_num}/${project.frame_rate_den}`,
       frame_count: project.frame_count,
