@@ -55,7 +55,7 @@ EDITOR_HTML = r"""<!doctype html>
   button, input { font: inherit; }
   .workspace {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 256px;
+    grid-template-columns: minmax(0, 1fr) var(--sidebar-width, 256px);
     width: 100vw;
     height: 100vh;
   }
@@ -215,6 +215,7 @@ EDITOR_HTML = r"""<!doctype html>
   }
   .current-timecode:hover { color: #fff; }
   .sidebar {
+    position: relative;
     min-width: 0;
     display: grid;
     grid-template-rows: 96px minmax(0, 1fr) 64px;
@@ -222,6 +223,17 @@ EDITOR_HTML = r"""<!doctype html>
     background: var(--panel);
     border-left: 1px solid #2b2e34;
   }
+  .sidebar-resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -5px;
+    z-index: 40;
+    width: 10px;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  body.resizing-sidebar { cursor: col-resize; user-select: none; }
   #sceneList {
     min-height: 0;
     display: flex;
@@ -432,6 +444,7 @@ EDITOR_HTML = r"""<!doctype html>
     </div>
   </main>
   <aside class="sidebar" id="sidebar">
+    <div class="sidebar-resizer" id="sidebarResizer" role="separator" aria-label="Resize scene panel" aria-orientation="vertical" aria-valuemin="256" aria-valuemax="512"></div>
     <div class="sidebar-toolbar top">
       <select class="video-select" id="videoSelect" disabled aria-label="Prepared video"><option>Loading video…</option></select>
       <select class="timeline-mode-select" id="timelineModeSelect" aria-label="Timeline representation">
@@ -463,6 +476,7 @@ EDITOR_HTML = r"""<!doctype html>
   const volumeDisplay = document.getElementById('volumeDisplay');
   const currentTimecode = document.getElementById('currentTimecode');
   const sidebar = document.getElementById('sidebar');
+  const sidebarResizer = document.getElementById('sidebarResizer');
   const sceneList = document.getElementById('sceneList');
   const videoSelect = document.getElementById('videoSelect');
   const timelineModeSelect = document.getElementById('timelineModeSelect');
@@ -487,10 +501,28 @@ EDITOR_HTML = r"""<!doctype html>
   let playbackDesired = false;
   let playbackRevision = 0;
   let dirty = false;
+  const savedSidebarWidth = Number(localStorage.getItem('rlxbot:sidebar-width'));
+  let sidebarWidth = Number.isFinite(savedSidebarWidth) ? savedSidebarWidth : 256;
+  let sidebarResizeStartX = 0;
+  let sidebarResizeStartWidth = sidebarWidth;
 
   const sceneIdPrefix = 'T3/';
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
   const fps = () => project.frame_rate_num / project.frame_rate_den;
+
+  function maximumSidebarWidth() {
+    return Math.max(256, Math.min(512, window.innerWidth - 320));
+  }
+
+  function applySidebarWidth(width, persist = false) {
+    sidebarWidth = clamp(width, 256, maximumSidebarWidth());
+    document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
+    sidebarResizer.setAttribute('aria-valuenow', String(Math.round(sidebarWidth)));
+    if (persist) localStorage.setItem('rlxbot:sidebar-width', String(Math.round(sidebarWidth)));
+    if (project && document.getElementById('spacerBefore')) updateTimelinePadding();
+  }
+
+  applySidebarWidth(sidebarWidth);
 
   function frameTimecode(frame) {
     const rate = Math.round(fps());
@@ -1053,6 +1085,27 @@ EDITOR_HTML = r"""<!doctype html>
     if (overview.hasPointerCapture(event.pointerId)) overview.releasePointerCapture(event.pointerId);
   });
 
+  sidebarResizer.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    sidebarResizeStartX = event.clientX;
+    sidebarResizeStartWidth = sidebarWidth;
+    document.body.classList.add('resizing-sidebar');
+    sidebarResizer.setPointerCapture(event.pointerId);
+  });
+  sidebarResizer.addEventListener('pointermove', event => {
+    if (!sidebarResizer.hasPointerCapture(event.pointerId)) return;
+    applySidebarWidth(sidebarResizeStartWidth + sidebarResizeStartX - event.clientX);
+  });
+  const finishSidebarResize = event => {
+    if (!sidebarResizer.hasPointerCapture(event.pointerId)) return;
+    sidebarResizer.releasePointerCapture(event.pointerId);
+    document.body.classList.remove('resizing-sidebar');
+    applySidebarWidth(sidebarWidth, true);
+  };
+  sidebarResizer.addEventListener('pointerup', finishSidebarResize);
+  sidebarResizer.addEventListener('pointercancel', finishSidebarResize);
+
   currentTimecode.addEventListener('click', () => {
     timeReadoutMode = timeReadoutMode === 'timecode' ? 'frame' : 'timecode';
     updatePlayheads(false);
@@ -1235,7 +1288,7 @@ EDITOR_HTML = r"""<!doctype html>
     };
     video.requestVideoFrameCallback(followFrames);
   }
-  window.addEventListener('resize', updateTimelinePadding);
+  window.addEventListener('resize', () => applySidebarWidth(sidebarWidth));
 
   async function loadProject(videoName = '') {
     stopPlayback();
