@@ -1719,9 +1719,8 @@ def serve_editor(filename, port):
                 self.send_header("Accept-Ranges", "bytes")
             if status == 206:
                 self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
-            self.end_headers()
-
             try:
+                self.end_headers()
                 remaining = end - start + 1
                 with path.open("rb") as source:
                     source.seek(start)
@@ -1786,13 +1785,17 @@ def serve_editor(filename, port):
                 thumbnail_path = thumbnail_dir / f"frame_{frame:08d}.png"
                 if not thumbnail_path.is_file():
                     temporary_path = thumbnail_path.with_suffix(".tmp.png")
+                    timestamp = (
+                        frame
+                        * selected_project["frame_rate_den"]
+                        / selected_project["frame_rate_num"]
+                    )
                     command = [
                         "ffmpeg",
                         "-v", "error",
+                        "-ss", f"{timestamp:.9f}",
                         "-i", str(selected_path),
-                        "-vf", f"select=eq(n\\,{frame})",
                         "-frames:v", "1",
-                        "-fps_mode", "vfr",
                         "-y", str(temporary_path),
                     ]
                     try:

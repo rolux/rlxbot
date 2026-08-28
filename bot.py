@@ -152,16 +152,16 @@ def frame_path(video_path, frame):
     return SCENES_DIR / video_path.stem / "thumbnails" / f"frame_{frame:08d}.png"
 
 
-def extract_frame(video_path, frame):
+def extract_frame(video_path, frame, frame_rate):
     output_path = frame_path(video_path, frame)
     if output_path.is_file():
         return output_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = output_path.with_suffix(".tmp.png")
+    timestamp = float(Fraction(frame, 1) / frame_rate)
     command = [
-        "ffmpeg", "-v", "error", "-i", str(video_path),
-        "-vf", f"select=eq(n\\,{frame})", "-frames:v", "1",
-        "-fps_mode", "vfr", "-y", str(temporary_path),
+        "ffmpeg", "-v", "error", "-ss", f"{timestamp:.9f}",
+        "-i", str(video_path), "-frames:v", "1", "-y", str(temporary_path),
     ]
     try:
         subprocess.run(command, check=True)
@@ -174,7 +174,7 @@ def extract_frame(video_path, frame):
     return output_path
 
 
-def write_review(metadata_path, video_path, posts, output_path=None):
+def write_review(metadata_path, video_path, posts, frame_rate, output_path=None):
     if output_path:
         review_path = Path(output_path).expanduser().resolve()
     else:
@@ -182,7 +182,7 @@ def write_review(metadata_path, video_path, posts, output_path=None):
     review_path.parent.mkdir(parents=True, exist_ok=True)
     cards = []
     for post in posts:
-        image_path = extract_frame(video_path, post["frame"])
+        image_path = extract_frame(video_path, post["frame"], frame_rate)
         cards.append(
             '<article class="post">'
             f'<h2>{html.escape(post["title"])}</h2>'
@@ -421,7 +421,7 @@ def apply_post_update(saved_post, post, snapshot, image_path, token):
     return changes
 
 
-def upload_posts(video_path, posts, token_path, delay, explicit_state=None):
+def upload_posts(video_path, posts, frame_rate, token_path, delay, explicit_state=None):
     token = load_token(token_path)
     channel, tag = validate_destination(token)
     print(f"Destination: {channel['name']} · tag: {tag['name']}")
@@ -440,7 +440,7 @@ def upload_posts(video_path, posts, token_path, delay, explicit_state=None):
     last_created = max(existing_numbers, default=0)
     operations = 0
     for number, post in enumerate(posts, 1):
-        image_path = extract_frame(video_path, post["frame"])
+        image_path = extract_frame(video_path, post["frame"], frame_rate)
         snapshot = post_snapshot(post, image_path, video_path)
         saved_post = saved_by_id.get(post["id"])
         if saved_post is not None:
@@ -616,7 +616,7 @@ def main():
     posts = limit_post_plan(posts, args.max_id)
 
     if args.command == "review":
-        review_path = write_review(metadata_path, video_path, posts, args.output)
+        review_path = write_review(metadata_path, video_path, posts, frame_rate, args.output)
         print(f"Generated review for {len(posts)} posts")
         print(review_path)
         return
@@ -627,7 +627,7 @@ def main():
         return
     if args.delay < 0:
         raise ValueError("--delay cannot be negative")
-    upload_posts(video_path, posts, args.token, args.delay, args.state)
+    upload_posts(video_path, posts, frame_rate, args.token, args.delay, args.state)
 
 
 if __name__ == "__main__":
