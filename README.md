@@ -73,6 +73,28 @@ uv run bot.py review scenes/example.json --max-id 10
 The review contains the exact forum titles, message bodies, and PNG frames. It
 is written to `reviews/` unless `--output` is provided.
 
+Frame indices remain zero-based in metadata, while the editor and Discord posts
+display conventional one-based frame numbers. Extracted-frame caches are tied
+to the source video's full path, size, and modification time, so a proxy and a
+master with the same filename stem cannot share cached images.
+
+## Shift metadata
+
+Move existing metadata onto a corrected timeline by adding a signed frame
+offset to all scene boundaries and keyframes:
+
+```sh
+uv run shift_metadata.py scenes/example.json -31
+```
+
+The command writes `scenes/example.shifted.json` by default, updates the frame
+count and timecodes, removes scenes shifted entirely before frame zero, and
+keeps the input untouched. Use `--video`, `--frame-count`, or `--output` when
+moving the metadata to a different source file. `--in-place` must be requested
+explicitly. Use `--source rockstargames.com` to store the human-readable source
+label in the shifted metadata; uploads use that label unless `--source` is
+passed explicitly.
+
 ## Discord configuration
 
 The target forum channel and forum tag are constants near the top of `bot.py`.
