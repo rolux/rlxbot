@@ -305,6 +305,21 @@ def validate_destination(token):
     return channel, tags[EXTENDED_LOOK_TAG_ID]
 
 
+def download_attachment(url):
+    request = Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urlopen(request, timeout=60) as response:
+            return response.read()
+    except HTTPError as error:
+        raise UploadError(
+            f"Discord attachment returned HTTP {error.code}: {error.reason}"
+        ) from error
+    except URLError as error:
+        raise UploadError(
+            f"Could not download Discord attachment: {error.reason}"
+        ) from error
+
+
 def campaign_id(posts):
     campaigns = {post["id"].split("/", 1)[0] for post in posts}
     if len(campaigns) != 1 or "" in campaigns:
@@ -426,6 +441,69 @@ def apply_post_update(saved_post, post, snapshot, image_path, token):
             saved_post["attachment_id"] = attachments[0].get("id")
             saved_post["attachment_url"] = attachments[0].get("url")
     return changes
+
+
+def inspect_live_post(saved_post, snapshot, token):
+    thread_id = saved_post["thread_id"]
+    message_id = saved_post["message_id"]
+    thread = discord_request("GET", f"/channels/{thread_id}", token)
+    message = discord_request(
+        "GET",
+        f"/channels/{thread_id}/messages/{message_id}",
+        token,
+    )
+    attachments = message.get("attachments") or []
+    live_image_hash = None
+    if len(attachments) == 1 and attachments[0].get("url"):
+        live_image_hash = hashlib.sha256(
+            download_attachment(attachments[0]["url"])
+        ).hexdigest()
+    return [
+        name for name, changed in (
+            ("title", thread.get("name") != snapshot["title"]),
+            ("body", message.get("content") != snapshot["body"]),
+            ("image", live_image_hash != snapshot["image_sha256"]),
+        ) if changed
+    ]
+
+
+def dry_run_posts(video_path, posts, frame_rate, token_path, explicit_state=None):
+    token = load_token(token_path)
+    channel, tag = validate_destination(token)
+    print(f"Destination: {channel['name']} · tag: {tag['name']}")
+    campaign = campaign_id(posts)
+    path = state_path(campaign, explicit_state)
+    state = load_state(path, campaign)
+    saved_by_id = {post["scene_id"]: post for post in state["posts"]}
+    unchanged = 0
+    updates = 0
+    creates = 0
+
+    for number, post in enumerate(posts, 1):
+        image_path = extract_frame(video_path, post["frame"], frame_rate)
+        snapshot = post_snapshot(post, image_path, video_path)
+        saved_post = saved_by_id.get(post["id"])
+        if saved_post is None:
+            creates += 1
+            print(f"[{number}/{len(posts)}] Would create {post['title']}")
+            continue
+        changes = inspect_live_post(saved_post, snapshot, token)
+        if changes:
+            updates += 1
+            print(
+                f"[{number}/{len(posts)}] Would update {post['title']}: "
+                + ", ".join(changes)
+            )
+        else:
+            unchanged += 1
+            print(f"[{number}/{len(posts)}] Unchanged {post['title']}")
+
+    print(
+        f"Dry run: {updates} update(s), {creates} creation(s), "
+        f"{unchanged} unchanged"
+    )
+    print("No Discord posts or upload-state files were changed.")
+    return path
 
 
 def upload_posts(video_path, posts, frame_rate, token_path, delay, explicit_state=None):
@@ -594,7 +672,13 @@ def main():
 
     upload_parser = subparsers.add_parser("upload", help="Upload validated posts to Discord")
     add_common_arguments(upload_parser)
-    upload_parser.add_argument("--execute", action="store_true", help="Actually create or update Discord posts")
+    mode = upload_parser.add_mutually_exclusive_group()
+    mode.add_argument("--execute", action="store_true", help="Actually create or update Discord posts")
+    mode.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Compare generated posts with live Discord without changing anything",
+    )
     upload_parser.add_argument("--delay", type=float, default=10.0, help="Seconds between posts (default: 10)")
     upload_parser.add_argument("--token", default=str(TOKEN_FILE), help="File containing the bot token")
     upload_parser.add_argument("--state", help="Override the Discord upload-state JSON path")
@@ -631,6 +715,9 @@ def main():
         print(review_path)
         return
 
+    if args.dry_run:
+        dry_run_posts(video_path, posts, frame_rate, args.token, args.state)
+        return
     if not args.execute:
         print(f"Validated {len(posts)} posts for {video_path.name}")
         print("No Discord requests were made. Add --execute to create the posts.")
