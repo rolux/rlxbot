@@ -15,6 +15,8 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 import cv2
 import numpy as np
 
+from video_cache import video_cache_key
+
 
 ROOT = Path(__file__).resolve().parent
 TIMELINES_DIR = ROOT / "timelines"
@@ -24,6 +26,25 @@ TIMELINE_HEIGHT = 256
 OVERVIEW_WIDTH = 3840
 OVERVIEW_HEIGHT = 16
 TIMELINE_VARIANTS = ("mean", "slitscan")
+
+
+def parse_byte_range(header, size):
+    match = re.fullmatch(r"bytes=(\d*)-(\d*)", header.strip())
+    if not match or not any(match.groups()) or size <= 0:
+        raise ValueError("Invalid byte range")
+    first, last = match.groups()
+    if first:
+        start = int(first)
+        end = min(int(last), size - 1) if last else size - 1
+    else:
+        suffix_length = int(last)
+        if suffix_length <= 0:
+            raise ValueError("Invalid byte range")
+        start = max(0, size - suffix_length)
+        end = size - 1
+    if start > end or start >= size:
+        raise ValueError("Unsatisfiable byte range")
+    return start, end
 
 
 EDITOR_HTML = r"""<!doctype html>
@@ -487,6 +508,7 @@ EDITOR_HTML = r"""<!doctype html>
 
   let project;
   let scenes = [];
+  let metadataSource = null;
   let currentFrame = 0;
   let dragging = false;
   let dragStartX = 0;
@@ -509,6 +531,7 @@ EDITOR_HTML = r"""<!doctype html>
   const sceneIdPrefix = 'T3/';
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
   const fps = () => project.frame_rate_num / project.frame_rate_den;
+  const displayedFrame = frame => frame + 1;
 
   function maximumSidebarWidth() {
     return Math.max(256, Math.min(512, window.innerWidth - 320));
@@ -607,7 +630,7 @@ EDITOR_HTML = r"""<!doctype html>
     overviewPointer.style.left = `${(currentFrame / Math.max(1, project.frame_count - 1)) * 100}%`;
     currentTimecode.value = timeReadoutMode === 'timecode'
       ? shortTimecode(currentFrame)
-      : `Frame ${currentFrame}`;
+      : `Frame ${displayedFrame(currentFrame)}`;
     currentTimecode.title = timeReadoutMode === 'timecode' ? 'Show current frame' : 'Show timecode';
   }
 
@@ -630,6 +653,7 @@ EDITOR_HTML = r"""<!doctype html>
     localStorage.setItem(`rlxbot:${project.video_name}`, JSON.stringify({
       version: 1,
       frame_count: project.frame_count,
+      source: metadataSource,
       scenes,
     }));
   }
@@ -927,7 +951,7 @@ EDITOR_HTML = r"""<!doctype html>
         const image = document.createElement('img');
         image.src = `${project.frame_url_prefix}${scene.keyframe_frame}.png`;
         image.loading = 'lazy';
-        image.alt = scene.title || `Keyframe ${scene.keyframe_frame}`;
+        image.alt = scene.title || `Keyframe ${displayedFrame(scene.keyframe_frame)}`;
         thumbnail.appendChild(image);
       } else {
         const placeholder = document.createElement('div');
@@ -942,7 +966,7 @@ EDITOR_HTML = r"""<!doctype html>
       meta.className = 'scene-meta';
       const range = `${shortTimecode(scene.start_frame)} - ${shortTimecode(scene.end_frame)}`;
       if (scene.keyframe_frame !== null) {
-        meta.innerHTML = `<span>${range}</span><span>Frame ${scene.keyframe_frame}</span>`;
+        meta.innerHTML = `<span>${range}</span><span>Frame ${displayedFrame(scene.keyframe_frame)}</span>`;
       } else {
         meta.innerHTML = `<span>${range}</span><span>No frame</span>`;
       }
@@ -1172,6 +1196,9 @@ EDITOR_HTML = r"""<!doctype html>
       const importedScenes = normalizeScenes(metadata.scenes, metadata.version >= 2);
       validateSceneSequence(importedScenes, project.frame_count);
       scenes = importedScenes;
+      metadataSource = typeof metadata.source === 'string' && metadata.source.trim()
+        ? metadata.source.trim()
+        : null;
       selectedSceneIndex = null;
       renderSidebar();
       renderTimelineOverlays();
@@ -1209,6 +1236,7 @@ EDITOR_HTML = r"""<!doctype html>
     const output = {
       version: 2,
       video: project.video_name,
+      ...(metadataSource ? {source: metadataSource} : {}),
       frame_rate: `${project.frame_rate_num}/${project.frame_rate_den}`,
       frame_count: project.frame_count,
       scenes: exportedScenes,
@@ -1362,13 +1390,21 @@ EDITOR_HTML = r"""<!doctype html>
       const source = saved?.version === 1 && saved.frame_count === data.frame_count && Array.isArray(saved.scenes)
         ? saved.scenes
         : data.scenes;
+      metadataSource = typeof saved?.source === 'string' && saved.source.trim()
+        ? saved.source.trim()
+        : null;
       scenes = normalizeScenes(source);
       validateSceneSequence(scenes, data.frame_count);
     } catch (_error) {
       scenes = normalizeScenes(data.scenes);
       validateSceneSequence(scenes, data.frame_count);
     }
-    localStorage.setItem(stateKey, JSON.stringify({version: 1, frame_count: data.frame_count, scenes}));
+    localStorage.setItem(stateKey, JSON.stringify({
+      version: 1,
+      frame_count: data.frame_count,
+      source: metadataSource,
+      scenes,
+    }));
     updateVolumeDisplay();
     videoSelect.replaceChildren(...data.available_videos.map(name => new Option(name, name, false, name === data.video_name)));
     document.documentElement.style.setProperty('--video-aspect', `${data.video_width} / ${data.video_height}`);
@@ -1640,7 +1676,8 @@ def build_editor_project(video_path):
 
 
 def serve_editor(filename, port):
-    video_path = Path(filename).resolve()
+    requested_video_path = Path(filename).expanduser().absolute()
+    video_path = requested_video_path.resolve()
     if not video_path.is_file():
         raise FileNotFoundError(video_path)
 
@@ -1662,6 +1699,9 @@ def serve_editor(filename, port):
             if candidate == video_path:
                 raise
             continue
+        if candidate == video_path and requested_video_path != video_path:
+            candidate_project["video_name"] = requested_video_path.name
+            candidate_project["output_filename"] = f"{requested_video_path.stem}_scenes.json"
         project_id = candidate_project["project_id"]
         if project_id in projects:
             continue
@@ -1695,16 +1735,9 @@ def serve_editor(filename, port):
             status = 200
             range_header = self.headers.get("Range") if allow_ranges else None
             if range_header:
-                match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip())
-                if not match:
-                    self.send_error(416)
-                    return
-                if match.group(1):
-                    start = int(match.group(1))
-                if match.group(2):
-                    end = int(match.group(2))
-                end = min(end, size - 1)
-                if start > end or start >= size:
+                try:
+                    start, end = parse_byte_range(range_header, size)
+                except ValueError:
                     self.send_response(416)
                     self.send_header("Content-Range", f"bytes */{size}")
                     self.end_headers()
@@ -1780,7 +1813,9 @@ def serve_editor(filename, port):
                 if frame < 0 or frame >= selected_project["frame_count"]:
                     self.send_error(404)
                     return
-                thumbnail_dir = SCENES_DIR / project_id / "thumbnails"
+                thumbnail_dir = (
+                    SCENES_DIR / video_cache_key(selected_path) / "thumbnails"
+                )
                 thumbnail_dir.mkdir(parents=True, exist_ok=True)
                 thumbnail_path = thumbnail_dir / f"frame_{frame:08d}.png"
                 if not thumbnail_path.is_file():
@@ -1872,7 +1907,8 @@ def main():
     elif args.command == "cuts":
         detect_cuts(args.video)
     elif args.command == "editor":
-        serve_editor(prepare_editor_data(args.video), args.port)
+        prepare_editor_data(args.video)
+        serve_editor(args.video, args.port)
 
 
 if __name__ == "__main__":

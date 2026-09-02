@@ -15,6 +15,8 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from video_cache import video_cache_key
+
 
 ROOT = Path(__file__).resolve().parent
 VIDEOS_DIR = ROOT / "videos"
@@ -81,7 +83,7 @@ def make_body(scene, frame_rate, source, location):
         f"**Source:** {source}\n"
         f"**In:** {format_timestamp(scene['in_frame'], frame_rate)}, "
         f"**Out:** {format_timestamp(scene['out_frame'], frame_rate)}, "
-        f"**Frame:** {scene['keyframe_frame']}\n"
+        f"**Frame:** {scene['keyframe_frame'] + 1}\n"
         f"**Location:** {location}"
     )
 
@@ -149,7 +151,12 @@ def limit_post_plan(posts, max_id=None):
 
 
 def frame_path(video_path, frame):
-    return SCENES_DIR / video_path.stem / "thumbnails" / f"frame_{frame:08d}.png"
+    return (
+        SCENES_DIR
+        / video_cache_key(video_path)
+        / "thumbnails"
+        / f"frame_{frame:08d}.png"
+    )
 
 
 def extract_frame(video_path, frame, frame_rate):
@@ -572,7 +579,7 @@ def delete_campaign(campaign, token_path, delay, execute=False, explicit_state=N
 def add_common_arguments(parser):
     parser.add_argument("metadata", help="Scene metadata JSON exported by the editor")
     parser.add_argument("--video", help="Override the source video named by the metadata")
-    parser.add_argument("--source", default="Netflix")
+    parser.add_argument("--source", help="Override the source label stored in metadata")
     parser.add_argument("--location", default="t.b.d.")
     parser.add_argument("--max-id", type=int, help="Process only the verified sequential prefix through this ID")
 
@@ -610,7 +617,10 @@ def main():
 
     metadata_path, metadata, frame_rate = load_metadata(args.metadata)
     video_path = resolve_video(metadata, args.video)
-    posts = build_post_plan(metadata, frame_rate, args.source, args.location)
+    source = args.source if args.source is not None else metadata.get("source", "Netflix")
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("Metadata has an invalid source label")
+    posts = build_post_plan(metadata, frame_rate, source, args.location)
     if args.command == "upload":
         validate_recorded_scene_ids(posts, args.state)
     posts = limit_post_plan(posts, args.max_id)
