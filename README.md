@@ -144,6 +144,8 @@ navigation chain; the first and last scenes include only their existing neighbor
 
 The default delay is ten seconds between changed posts. Discord `429` responses
 are retried automatically using the returned retry interval.
+Archived threads are temporarily unarchived for an update and restored to their
+archived state afterward; this requires the bot's Manage Threads permission.
 
 ## Delete a test campaign
 

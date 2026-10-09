@@ -448,32 +448,52 @@ def apply_post_update(saved_post, post, snapshot, image_path, token):
     if not changes:
         return None
 
-    if title_changed:
-        discord_request("PATCH", f"/channels/{saved_post['thread_id']}", token, {
-            "name": snapshot["title"],
-        })
+    thread_id = saved_post["thread_id"]
+    thread = discord_request("GET", f"/channels/{thread_id}", token)
+    was_archived = bool(thread.get("thread_metadata", {}).get("archived"))
+    if was_archived:
+        print("    temporarily unarchiving thread…", flush=True)
+        discord_request(
+            "PATCH", f"/channels/{thread_id}", token,
+            {"archived": False},
+        )
 
     message_response = None
-    if image_changed:
-        filename = re.sub(r"[^A-Za-z0-9._-]+", "_", post["id"]) + ".png"
-        message_response = discord_request(
-            "PATCH",
-            f"/channels/{saved_post['thread_id']}/messages/{saved_post['message_id']}",
-            token,
-            payload={
-                "content": snapshot["body"],
-                "allowed_mentions": {"parse": []},
-                "attachments": [{"id": "0", "filename": filename}],
-            },
-            image_path=image_path,
-        )
-    elif body_changed:
-        message_response = discord_request(
-            "PATCH",
-            f"/channels/{saved_post['thread_id']}/messages/{saved_post['message_id']}",
-            token,
-            payload={"content": snapshot["body"], "allowed_mentions": {"parse": []}},
-        )
+    try:
+        if title_changed:
+            discord_request("PATCH", f"/channels/{thread_id}", token, {
+                "name": snapshot["title"],
+            })
+
+        if image_changed:
+            filename = (
+                re.sub(r"[^A-Za-z0-9._-]+", "_", post["id"])
+                + image_path.suffix
+            )
+            message_response = discord_request(
+                "PATCH",
+                f"/channels/{thread_id}/messages/{saved_post['message_id']}",
+                token,
+                payload={
+                    "content": snapshot["body"],
+                    "allowed_mentions": {"parse": []},
+                    "attachments": [{"id": "0", "filename": filename}],
+                },
+                image_path=image_path,
+            )
+        elif body_changed:
+            message_response = discord_request(
+                "PATCH",
+                f"/channels/{thread_id}/messages/{saved_post['message_id']}",
+                token,
+                payload={"content": snapshot["body"], "allowed_mentions": {"parse": []}},
+            )
+    finally:
+        if was_archived:
+            discord_request(
+                "PATCH", f"/channels/{thread_id}", token,
+                {"archived": True},
+            )
 
     saved_post.update(snapshot)
     if message_response is not None:
