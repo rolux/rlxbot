@@ -27,8 +27,13 @@ TOKEN_FILE = ROOT / "untracked" / "token.txt"
 
 DISCORD_API = "https://discord.com/api/v10"
 FORUM_CHANNEL_ID = "1214480866085183508"
-EXTENDED_LOOK_TAG_ID = "1535197149346922556"
 USER_AGENT = "DiscordBot (https://github.com/rolux/rlxbot, 0.1.0)"
+IMAGE_PROFILES = ("native", "hdr-mobius")
+HDR_MOBIUS_FILTER = (
+    "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
+    "tonemap=tonemap=mobius:desat=0,"
+    "zscale=t=iec61966-2-1:m=bt709:r=full,format=yuvj444p"
+)
 
 
 class UploadError(RuntimeError):
@@ -150,26 +155,34 @@ def limit_post_plan(posts, max_id=None):
     return [post for _number, post in prefix]
 
 
-def frame_path(video_path, frame):
-    return (
-        SCENES_DIR
-        / video_cache_key(video_path)
-        / "thumbnails"
-        / f"frame_{frame:08d}.png"
-    )
+def frame_path(video_path, frame, image_profile):
+    extension = ".jpg" if image_profile == "hdr-mobius" else ".png"
+    thumbnail_dir = SCENES_DIR / video_cache_key(video_path) / "thumbnails"
+    if image_profile != "native":
+        thumbnail_dir /= image_profile
+    return thumbnail_dir / f"frame_{frame:08d}{extension}"
 
 
-def extract_frame(video_path, frame, frame_rate):
-    output_path = frame_path(video_path, frame)
+def extract_frame(video_path, frame, frame_rate, image_profile):
+    output_path = frame_path(video_path, frame, image_profile)
     if output_path.is_file():
         return output_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = output_path.with_suffix(".tmp.png")
+    temporary_path = output_path.with_name(
+        f"{output_path.stem}.tmp{output_path.suffix}"
+    )
     timestamp = float(Fraction(frame, 1) / frame_rate)
     command = [
         "ffmpeg", "-v", "error", "-ss", f"{timestamp:.9f}",
-        "-i", str(video_path), "-frames:v", "1", "-y", str(temporary_path),
+        "-i", str(video_path), "-frames:v", "1",
     ]
+    if image_profile == "hdr-mobius":
+        command.extend([
+            "-vf", HDR_MOBIUS_FILTER,
+            "-c:v", "mjpeg",
+            "-q:v", "1",
+        ])
+    command.extend(["-y", str(temporary_path)])
     try:
         subprocess.run(command, check=True)
         if not temporary_path.is_file():
@@ -181,7 +194,9 @@ def extract_frame(video_path, frame, frame_rate):
     return output_path
 
 
-def write_review(metadata_path, video_path, posts, frame_rate, output_path=None):
+def write_review(
+    metadata_path, video_path, posts, frame_rate, image_profile, output_path=None
+):
     if output_path:
         review_path = Path(output_path).expanduser().resolve()
     else:
@@ -189,7 +204,9 @@ def write_review(metadata_path, video_path, posts, frame_rate, output_path=None)
     review_path.parent.mkdir(parents=True, exist_ok=True)
     cards = []
     for post in posts:
-        image_path = extract_frame(video_path, post["frame"], frame_rate)
+        image_path = extract_frame(
+            video_path, post["frame"], frame_rate, image_profile
+        )
         cards.append(
             '<article class="post">'
             f'<h2>{html.escape(post["title"])}</h2>'
@@ -295,14 +312,14 @@ def discord_request(method, path, token, payload=None, image_path=None):
             raise UploadError(f"Could not reach Discord: {error.reason}") from error
 
 
-def validate_destination(token):
+def validate_destination(token, tag_id):
     channel = discord_request("GET", f"/channels/{FORUM_CHANNEL_ID}", token)
     if channel.get("type") != 15:
         raise UploadError(f"Channel {FORUM_CHANNEL_ID} is not a forum channel")
     tags = {tag["id"]: tag for tag in channel.get("available_tags", [])}
-    if EXTENDED_LOOK_TAG_ID not in tags:
-        raise UploadError("The Extended Look tag is not available in the target forum")
-    return channel, tags[EXTENDED_LOOK_TAG_ID]
+    if tag_id not in tags:
+        raise UploadError(f"Tag {tag_id} is not available in the target forum")
+    return channel, tags[tag_id]
 
 
 def download_attachment(url):
@@ -333,13 +350,13 @@ def state_path(campaign, explicit_state=None):
     return DISCORD_DIR / f"{campaign}.json"
 
 
-def load_state(path, campaign):
+def load_state(path, campaign, tag_id=None):
     if not path.is_file():
         return {
             "version": 2,
             "campaign": campaign,
             "channel_id": FORUM_CHANNEL_ID,
-            "tag_id": EXTENDED_LOOK_TAG_ID,
+            "tag_id": tag_id,
             "posts": [],
         }
     state = json.loads(path.read_text(encoding="utf-8"))
@@ -347,6 +364,8 @@ def load_state(path, campaign):
         raise ValueError(f"Upload state does not match this Discord destination: {path}")
     if state.get("campaign", campaign) != campaign:
         raise ValueError(f"Upload state does not match campaign {campaign}: {path}")
+    if tag_id is not None and state.get("tag_id") != tag_id:
+        raise ValueError(f"Upload state does not match tag {tag_id}: {path}")
     if not isinstance(state.get("posts"), list):
         raise ValueError(f"Invalid upload state: {path}")
     state["version"] = 2
@@ -362,12 +381,12 @@ def save_state(path, state):
     temporary_path.replace(path)
 
 
-def validate_recorded_scene_ids(posts, explicit_state=None):
+def validate_recorded_scene_ids(posts, tag_id, explicit_state=None):
     campaign = campaign_id(posts)
     path = state_path(campaign, explicit_state)
     if not path.is_file():
         return
-    state = load_state(path, campaign)
+    state = load_state(path, campaign, tag_id)
     metadata_ids = {post["id"] for post in posts}
     missing_ids = [
         saved_post.get("scene_id") for saved_post in state["posts"]
@@ -380,12 +399,34 @@ def validate_recorded_scene_ids(posts, explicit_state=None):
         )
 
 
-def post_snapshot(post, image_path, video_path):
+def add_scene_links(post, saved_by_id, guild_id):
+    campaign, number_text = post["id"].split("/", 1)
+    number = int(number_text)
+    links = []
+    previous = saved_by_id.get(f"{campaign}/{number - 1}")
+    following = saved_by_id.get(f"{campaign}/{number + 1}")
+    if previous is not None:
+        links.append(
+            "**Previous scene:** "
+            f"https://discord.com/channels/{guild_id}/{previous['thread_id']}"
+        )
+    if following is not None:
+        links.append(
+            "**Next scene:** "
+            f"https://discord.com/channels/{guild_id}/{following['thread_id']}"
+        )
+    if not links:
+        return post
+    return {**post, "body": post["body"] + "\n" + "\n".join(links)}
+
+
+def post_snapshot(post, image_path, video_path, image_profile, tag_id):
     snapshot = {
         "title": post["title"],
         "body": post["body"],
-        "tag_ids": [EXTENDED_LOOK_TAG_ID],
+        "tag_ids": [tag_id],
         "frame": post["frame"],
+        "image_profile": image_profile,
         "image_sha256": hashlib.sha256(image_path.read_bytes()).hexdigest(),
         "source_video": video_path.name,
     }
@@ -467,21 +508,29 @@ def inspect_live_post(saved_post, snapshot, token):
     ]
 
 
-def dry_run_posts(video_path, posts, frame_rate, token_path, explicit_state=None):
+def dry_run_posts(
+    video_path, posts, frame_rate, image_profile, tag_id, token_path,
+    explicit_state=None,
+):
     token = load_token(token_path)
-    channel, tag = validate_destination(token)
+    channel, tag = validate_destination(token, tag_id)
     print(f"Destination: {channel['name']} · tag: {tag['name']}")
     campaign = campaign_id(posts)
     path = state_path(campaign, explicit_state)
-    state = load_state(path, campaign)
+    state = load_state(path, campaign, tag_id)
     saved_by_id = {post["scene_id"]: post for post in state["posts"]}
     unchanged = 0
     updates = 0
     creates = 0
 
     for number, post in enumerate(posts, 1):
-        image_path = extract_frame(video_path, post["frame"], frame_rate)
-        snapshot = post_snapshot(post, image_path, video_path)
+        post = add_scene_links(post, saved_by_id, channel["guild_id"])
+        image_path = extract_frame(
+            video_path, post["frame"], frame_rate, image_profile
+        )
+        snapshot = post_snapshot(
+            post, image_path, video_path, image_profile, tag_id
+        )
         saved_post = saved_by_id.get(post["id"])
         if saved_post is None:
             creates += 1
@@ -506,13 +555,16 @@ def dry_run_posts(video_path, posts, frame_rate, token_path, explicit_state=None
     return path
 
 
-def upload_posts(video_path, posts, frame_rate, token_path, delay, explicit_state=None):
+def upload_posts(
+    video_path, posts, frame_rate, image_profile, tag_id, token_path, delay,
+    explicit_state=None,
+):
     token = load_token(token_path)
-    channel, tag = validate_destination(token)
+    channel, tag = validate_destination(token, tag_id)
     print(f"Destination: {channel['name']} · tag: {tag['name']}")
     campaign = campaign_id(posts)
     path = state_path(campaign, explicit_state)
-    state = load_state(path, campaign)
+    state = load_state(path, campaign, tag_id)
     existing_numbers = []
     for saved_post in state["posts"]:
         match = re.fullmatch(rf"{re.escape(campaign)}/([1-9]\d*)", saved_post.get("scene_id", ""))
@@ -525,8 +577,13 @@ def upload_posts(video_path, posts, frame_rate, token_path, delay, explicit_stat
     last_created = max(existing_numbers, default=0)
     operations = 0
     for number, post in enumerate(posts, 1):
-        image_path = extract_frame(video_path, post["frame"], frame_rate)
-        snapshot = post_snapshot(post, image_path, video_path)
+        post = add_scene_links(post, saved_by_id, channel["guild_id"])
+        image_path = extract_frame(
+            video_path, post["frame"], frame_rate, image_profile
+        )
+        snapshot = post_snapshot(
+            post, image_path, video_path, image_profile, tag_id
+        )
         saved_post = saved_by_id.get(post["id"])
         if saved_post is not None:
             if saved_post.get("post_sha256") == snapshot["post_sha256"]:
@@ -549,10 +606,13 @@ def upload_posts(video_path, posts, frame_rate, token_path, delay, explicit_stat
             raise UploadError(
                 f"Refusing to create {post['id']}; the next sequential ID must be {campaign}/{last_created + 1}"
             )
-        filename = re.sub(r"[^A-Za-z0-9._-]+", "_", post["id"]) + ".png"
+        filename = (
+            re.sub(r"[^A-Za-z0-9._-]+", "_", post["id"])
+            + image_path.suffix
+        )
         payload = {
             "name": post["title"],
-            "applied_tags": [EXTENDED_LOOK_TAG_ID],
+            "applied_tags": [tag_id],
             "message": {
                 "content": post["body"],
                 "allowed_mentions": {"parse": []},
@@ -659,6 +719,12 @@ def add_common_arguments(parser):
     parser.add_argument("--video", help="Override the source video named by the metadata")
     parser.add_argument("--source", help="Override the source label stored in metadata")
     parser.add_argument("--location", default="t.b.d.")
+    parser.add_argument(
+        "--image-profile",
+        choices=IMAGE_PROFILES,
+        default="native",
+        help="Discord/review image conversion profile (default: native)",
+    )
     parser.add_argument("--max-id", type=int, help="Process only the verified sequential prefix through this ID")
 
 
@@ -680,6 +746,11 @@ def main():
         help="Compare generated posts with live Discord without changing anything",
     )
     upload_parser.add_argument("--delay", type=float, default=10.0, help="Seconds between posts (default: 10)")
+    upload_parser.add_argument(
+        "--tag-id",
+        required=True,
+        help="Discord forum tag ID to apply to every post",
+    )
     upload_parser.add_argument("--token", default=str(TOKEN_FILE), help="File containing the bot token")
     upload_parser.add_argument("--state", help="Override the Discord upload-state JSON path")
 
@@ -704,19 +775,27 @@ def main():
     source = args.source if args.source is not None else metadata.get("source", "Netflix")
     if not isinstance(source, str) or not source.strip():
         raise ValueError("Metadata has an invalid source label")
+    image_profile = args.image_profile
     posts = build_post_plan(metadata, frame_rate, source, args.location)
     if args.command == "upload":
-        validate_recorded_scene_ids(posts, args.state)
+        if not re.fullmatch(r"\d+", args.tag_id):
+            raise ValueError("--tag-id must be a numeric Discord tag ID")
+        validate_recorded_scene_ids(posts, args.tag_id, args.state)
     posts = limit_post_plan(posts, args.max_id)
 
     if args.command == "review":
-        review_path = write_review(metadata_path, video_path, posts, frame_rate, args.output)
+        review_path = write_review(
+            metadata_path, video_path, posts, frame_rate, image_profile, args.output
+        )
         print(f"Generated review for {len(posts)} posts")
         print(review_path)
         return
 
     if args.dry_run:
-        dry_run_posts(video_path, posts, frame_rate, args.token, args.state)
+        dry_run_posts(
+            video_path, posts, frame_rate, image_profile, args.tag_id,
+            args.token, args.state,
+        )
         return
     if not args.execute:
         print(f"Validated {len(posts)} posts for {video_path.name}")
@@ -724,7 +803,10 @@ def main():
         return
     if args.delay < 0:
         raise ValueError("--delay cannot be negative")
-    upload_posts(video_path, posts, frame_rate, args.token, args.delay, args.state)
+    upload_posts(
+        video_path, posts, frame_rate, image_profile, args.tag_id,
+        args.token, args.delay, args.state,
+    )
 
 
 if __name__ == "__main__":

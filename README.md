@@ -66,14 +66,19 @@ Useful controls:
 
 ## Review posts
 
+Reviews and uploads use native PNG frame extraction by default. For HDR10/PQ
+material affected by Discord color handling, pass `--image-profile hdr-mobius`
+to both commands. This applies the Mobius HDR-to-SDR conversion and produces a
+high-quality JPEG without changing the editor or its metadata.
+
 Generate a static HTML review before uploading:
 
 ```sh
 uv run bot.py review scenes/example.json --max-id 10
 ```
 
-The review contains the exact forum titles, message bodies, and PNG frames. It
-is written to `reviews/` unless `--output` is provided.
+The review contains the exact forum titles, message bodies, and attachment
+images. It is written to `reviews/` unless `--output` is provided.
 
 Frame indices remain zero-based in metadata, while the editor and Discord posts
 display conventional one-based frame numbers. Extracted-frame caches are tied
@@ -99,7 +104,9 @@ passed explicitly.
 
 ## Discord configuration
 
-The target forum channel and forum tag are constants near the top of `bot.py`.
+The target forum channel is a constant near the top of `bot.py`. Pass the
+numeric forum tag ID explicitly to each upload with `--tag-id`; the selected tag
+is recorded in the campaign state and cannot be changed accidentally later.
 Store the bot token as plain text in:
 
 ```text
@@ -115,20 +122,25 @@ Without `--execute`, `upload` performs local structural validation and makes no
 Discord requests:
 
 ```sh
-uv run bot.py upload scenes/example.json --max-id 10
+uv run bot.py upload scenes/example.json --tag-id 1535197149346922556 --max-id 10
 ```
 
 To create or update the verified sequential prefix:
 
 ```sh
-uv run bot.py upload scenes/example.json --max-id 10 --execute
+uv run bot.py upload scenes/example.json --tag-id 1535197149346922556 --max-id 10 --execute
 ```
 
 Discord thread IDs, starter-message IDs, attachment IDs, source information,
-and content hashes are saved after every successful operation in
-`discord/T3.json`. Subsequent runs skip unchanged posts, edit changed posts,
+and content hashes are saved after every successful operation in a campaign
+file such as `discord/T3.json` or `discord/L7.json`. Subsequent runs skip unchanged posts, edit changed posts,
 and create only the next sequential IDs. A previously uploaded ID disappearing
 from the complete metadata stops the run.
+
+When neighboring thread IDs are available in the campaign state, uploads append
+bold **Previous scene:** and **Next scene:** links to the starter-message body.
+Run the uploader a second time after creating a campaign to add the complete
+navigation chain; the first and last scenes include only their existing neighbor.
 
 The default delay is ten seconds between changed posts. Discord `429` responses
 are retried automatically using the returned retry interval.
