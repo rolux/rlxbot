@@ -399,21 +399,28 @@ def validate_recorded_scene_ids(posts, tag_id, explicit_state=None):
         )
 
 
-def add_scene_links(post, saved_by_id, guild_id):
+def add_scene_links(post, saved_by_id, guild_id, planned_by_id=None):
     campaign, number_text = post["id"].split("/", 1)
     number = int(number_text)
     links = []
-    previous = saved_by_id.get(f"{campaign}/{number - 1}")
-    following = saved_by_id.get(f"{campaign}/{number + 1}")
+    planned_by_id = planned_by_id or {}
+    previous_id = f"{campaign}/{number - 1}"
+    following_id = f"{campaign}/{number + 1}"
+    previous = saved_by_id.get(previous_id)
+    following = saved_by_id.get(following_id)
     if previous is not None:
+        title = planned_by_id.get(previous_id, previous)["title"]
         links.append(
             "**Previous scene:** "
-            f"https://discord.com/channels/{guild_id}/{previous['thread_id']}"
+            f"[{title}](https://discord.com/channels/"
+            f"{guild_id}/{previous['thread_id']})"
         )
     if following is not None:
+        title = planned_by_id.get(following_id, following)["title"]
         links.append(
             "**Next scene:** "
-            f"https://discord.com/channels/{guild_id}/{following['thread_id']}"
+            f"[{title}](https://discord.com/channels/"
+            f"{guild_id}/{following['thread_id']})"
         )
     if not links:
         return post
@@ -539,12 +546,15 @@ def dry_run_posts(
     path = state_path(campaign, explicit_state)
     state = load_state(path, campaign, tag_id)
     saved_by_id = {post["scene_id"]: post for post in state["posts"]}
+    planned_by_id = {post["id"]: post for post in posts}
     unchanged = 0
     updates = 0
     creates = 0
 
     for number, post in enumerate(posts, 1):
-        post = add_scene_links(post, saved_by_id, channel["guild_id"])
+        post = add_scene_links(
+            post, saved_by_id, channel["guild_id"], planned_by_id
+        )
         image_path = extract_frame(
             video_path, post["frame"], frame_rate, image_profile
         )
@@ -594,10 +604,13 @@ def upload_posts(
     if sorted(existing_numbers) != list(range(1, max(existing_numbers, default=0) + 1)):
         raise ValueError(f"Discord state contains a gap in the {campaign} sequence: {path}")
     saved_by_id = {post["scene_id"]: post for post in state["posts"]}
+    planned_by_id = {post["id"]: post for post in posts}
     last_created = max(existing_numbers, default=0)
     operations = 0
     for number, post in enumerate(posts, 1):
-        post = add_scene_links(post, saved_by_id, channel["guild_id"])
+        post = add_scene_links(
+            post, saved_by_id, channel["guild_id"], planned_by_id
+        )
         image_path = extract_frame(
             video_path, post["frame"], frame_rate, image_profile
         )

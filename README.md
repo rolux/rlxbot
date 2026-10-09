@@ -139,6 +139,7 @@ from the complete metadata stops the run.
 
 When neighboring thread IDs are available in the campaign state, uploads append
 bold **Previous scene:** and **Next scene:** links to the starter-message body.
+Each link uses the neighboring post's full title, including its bracketed scene ID.
 Run the uploader a second time after creating a campaign to add the complete
 navigation chain; the first and last scenes include only their existing neighbor.
 

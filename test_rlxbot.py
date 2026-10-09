@@ -38,6 +38,39 @@ class RlxbotTests(unittest.TestCase):
         self.assertIn("**Frame:** 1", body)
         self.assertIn("**In:** 00:00.000", body)
 
+    def test_scene_links_include_bracketed_post_titles(self):
+        post = {"id": "T3/2", "title": "[T3/2] Second", "body": "Body"}
+        saved_by_id = {
+            "T3/1": {
+                "title": "[T3/1] Old title",
+                "thread_id": "111",
+            },
+            "T3/3": {
+                "title": "[T3/3] Third",
+                "thread_id": "333",
+            },
+        }
+        planned_by_id = {
+            "T3/1": {"title": "[T3/1] First"},
+            "T3/2": post,
+            "T3/3": {"title": "[T3/3] Third"},
+        }
+
+        linked = bot.add_scene_links(
+            post, saved_by_id, "guild", planned_by_id
+        )
+
+        self.assertIn(
+            "**Previous scene:** [[T3/1] First]"
+            "(https://discord.com/channels/guild/111)",
+            linked["body"],
+        )
+        self.assertIn(
+            "**Next scene:** [[T3/3] Third]"
+            "(https://discord.com/channels/guild/333)",
+            linked["body"],
+        )
+
     def test_shift_removes_leading_scene_and_updates_timecodes(self):
         metadata = {
             "version": 2,
