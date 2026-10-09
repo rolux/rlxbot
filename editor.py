@@ -528,7 +528,7 @@ EDITOR_HTML = r"""<!doctype html>
   let sidebarResizeStartX = 0;
   let sidebarResizeStartWidth = sidebarWidth;
 
-  const sceneIdPrefix = 'T3/';
+  let sceneIdPrefix = '';
   const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
   const fps = () => project.frame_rate_num / project.frame_rate_den;
   const displayedFrame = frame => frame + 1;
@@ -1235,6 +1235,7 @@ EDITOR_HTML = r"""<!doctype html>
     });
     const output = {
       version: 2,
+      campaign: project.campaign,
       video: project.video_name,
       ...(metadataSource ? {source: metadataSource} : {}),
       frame_rate: `${project.frame_rate_num}/${project.frame_rate_den}`,
@@ -1379,6 +1380,7 @@ EDITOR_HTML = r"""<!doctype html>
     if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
     const data = await response.json();
     project = data;
+    sceneIdPrefix = `${data.campaign}/`;
     const pageUrl = new URL(window.location.href);
     pageUrl.searchParams.set('video', data.video_name);
     window.history.replaceState(null, '', pageUrl);
@@ -1675,7 +1677,9 @@ def build_editor_project(video_path):
     }
 
 
-def serve_editor(filename, port):
+def serve_editor(filename, campaign, port):
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", campaign):
+        raise ValueError(f"Invalid campaign ID: {campaign}")
     requested_video_path = Path(filename).expanduser().absolute()
     video_path = requested_video_path.resolve()
     if not video_path.is_file():
@@ -1778,7 +1782,11 @@ def serve_editor(filename, port):
                 if selected_project is None:
                     self.send_error(404, "Unknown video")
                     return
-                payload = {**selected_project, "available_videos": available_videos}
+                payload = {
+                    **selected_project,
+                    "campaign": campaign,
+                    "available_videos": available_videos,
+                }
                 self.sendBytes(
                     json.dumps(payload).encode("utf-8"),
                     "application/json; charset=utf-8",
@@ -1899,6 +1907,11 @@ def main():
         "editor", help="Open the local scene editor"
     )
     editor_parser.add_argument("video")
+    editor_parser.add_argument(
+        "--campaign",
+        required=True,
+        help="Scene ID prefix, such as T3 or L7",
+    )
     editor_parser.add_argument("--port", type=int, default=8028)
 
     args = parser.parse_args()
@@ -1908,7 +1921,7 @@ def main():
         detect_cuts(args.video)
     elif args.command == "editor":
         prepare_editor_data(args.video)
-        serve_editor(args.video, args.port)
+        serve_editor(args.video, args.campaign, args.port)
 
 
 if __name__ == "__main__":

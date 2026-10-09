@@ -27,7 +27,7 @@ uv sync
 Put a source video in `videos/` and start the local editor:
 
 ```sh
-uv run editor.py editor videos/example.mp4 --port 8028
+uv run editor.py editor videos/example.mp4 --campaign T3 --port 8028
 ```
 
 If the video has not been prepared yet, this command automatically runs
@@ -40,6 +40,8 @@ Open the displayed local URL in a browser. The editor supports adjusting scene
 boundaries, splitting and merging scenes, naming scenes, editing locations, and
 selecting exact keyframes. Metadata can be loaded and saved as JSON. The active
 video is recorded in the page URL, so reloading restores the same selection.
+`--campaign` is required and controls the exported scene IDs (`T3/1`, `L7/1`,
+and so on) without changing the uploader.
 
 The individual preparation commands remain available when either result needs
 to be regenerated explicitly:
